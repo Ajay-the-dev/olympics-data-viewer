@@ -10,8 +10,13 @@ Route::get('/allteams',[DataController::class, 'getAllTeams']);
 
 Route::get('/getPlayers',[DataController::class, 'getPlayers']);
 
+Route::get('/getMaxMinDob',[DataController::class, 'getMaxMinDobOfplayers']);
 
 Route::post('/saveXml',[DataController::class, 'saveXml']);
+
+Route::post('/getPlayerDataByFilter',[DataController::class, 'getPlayerDataForFilter']);
+
+
 
 
 // Route::middleware('auth:sanctum')->group(function()

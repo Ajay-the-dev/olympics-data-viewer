@@ -3,11 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Odf;
+use DateTime;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Database\QueryException;
-
-
+use stdClass;
 
 class DataController extends Controller
 {
@@ -141,12 +141,31 @@ class DataController extends Controller
 
                 if($request->country)
                 {
-                    $players = Odf::where('playerTeam', $request->country )->get();
+
+                    if($request->playerId)
+                    {
+                        $players = Odf::where('playerId', $request->playerId )->paginate(30);
+                        return response()->json([
+                                        "success" => 1,
+                                        "message" => "players successfully",
+                                        "data" => json_encode($players)
+                        ]);
+                    }
+                    $players = Odf::where('playerTeam', $request->country )->paginate(30);
                     return response()->json([
                                     "success" => 1,
                                     "message" => "players successfully",
                                     "data" => json_encode($players)
                     ]);
+                }
+                elseif($request->name) {
+
+                        $players = Odf::where('playerName', 'like', '%' . $request->name . '%')->paginate(30);   
+                        return response()->json([
+                                        "success" => 1,
+                                        "message" => "players successfully",
+                                        "data" => json_encode($players)
+                        ]);
                 }
                 else{
                     $players = Odf::latest()->paginate(30);
@@ -162,6 +181,156 @@ class DataController extends Controller
            return response()->json([
                         "success" => 0,
                         "message" => "Server : Something went wrong while getting players",
+                        "data" => json_encode($th),
+                        "error" => [
+                                        'message' => $th->getMessage()
+                                    ]
+                    ]);   
+        }
+    }
+
+    public function getMaxMinDobOfplayers(Request $request)
+    {
+        try {
+
+            
+            if($request->country)
+            {
+                $max = Odf::where('playerTeam', $request->country)->max('playerDob');
+                $min = Odf::where('playerTeam', $request->country)->min('playerDob');
+            }
+            else{
+                $max = Odf::max('playerDob');
+                $min = Odf::min('playerDob');
+            }
+
+                $data = new stdClass();
+                $data->min = $min;
+                $data->max = $max;
+
+                return response()->json([
+                        "success" => 1,
+                        "message" => "got max min date ".$request->country,
+                        "data" => $data
+                    ]);   
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                        "success" => 0,
+                        "message" => "Server : Something went wrong while getting max min data",
+                        "data" => json_encode($th),
+                        "error" => [
+                                        'message' => $th->getMessage()
+                                    ]
+                    ]);   
+        }
+    }
+
+
+    public function getPlayerDataForFilter(Request $request)
+    {
+        try{
+
+
+            $query = Odf::query();
+
+            //player team condition
+            if ($request->filled('playerTeam')) {
+                $query->where('playerTeam', $request->playerTeam );
+            }
+
+            //player age condition
+            if ($request->filled('fromAge') || $request->filled('toAge')) 
+            {
+                    $today = date('Y-m-d');
+                    if ($request->filled('fromAge') && $request->filled('toAge')) 
+                    {
+                        if($request->fromAge == $request->toAge)
+                        {
+                            $maxDob = date('Y-m-d', strtotime("-$request->fromAge years", strtotime($today)));      
+                            $minDob = date('Y-m-d', strtotime("-" . ($request->fromAge + 1) . " years", strtotime($today)));
+                            $query->whereDate('playerDob', '>=', $minDob)->whereDate('playerDob', '<', $maxDob);
+                        }
+                        else{
+                                $minAge = min($request->fromAge, $request->toAge);
+                                $maxAge = max($request->fromAge, $request->toAge);
+
+                                $minDob = date('Y-m-d', strtotime("-$maxAge years -1 Day", strtotime($today))); // older
+                                $maxDob = date('Y-m-d', strtotime("-$minAge years", strtotime($today))); // younger
+                                
+                                $query->whereDate('playerDob', '>=', $minDob)->whereDate('playerDob', '<=', $maxDob);
+
+                        }
+                    }
+                    elseif($request->filled('fromAge'))
+                    {
+                        $maxDob = date('Y-m-d', strtotime("-$request->fromAge years", strtotime($today)));
+                        $query->whereDate('playerDob', '<=', $maxDob);
+                    }
+                    elseif($request->filled('toAge'))
+                    {
+                        $minDob = date('Y-m-d', strtotime("-$request->toAge years -1 day", strtotime($today)));
+                        $query->whereDate('playerDob', '>=', $minDob);
+                    }
+                   
+            }
+
+            // player report entry date
+
+            if ($request->filled('fromdate') || $request->filled('toDate')) 
+            {
+                if ($request->filled('fromdate') && $request->filled('toDate')) 
+                {
+                    if($request->fromdate == $request->toDate)
+                    {
+                        $request->fromdate = $request->fromdate." 00:00:00";
+                        $query->whereDate('report_date', '=', $request->fromdate);
+                    }
+                    else{
+                        $request->fromdate = $request->fromdate." 00:00:00";
+                        $request->toDate = $request->toDate." 00:00:00";
+                        $query->whereDate('report_date', '>=', $request->fromdate)->whereDate('report_date', '<=', $request->toDate);
+                    }
+                }
+                elseif ($request->filled('fromdate')) {
+                        $request->fromdate = $request->fromdate." 00:00:00";
+                        $query->whereDate('report_date', '>=', $request->fromdate);
+    
+                }
+                elseif ($request->filled('toDate')) {
+                        $request->toDate = $request->toDate." 00:00:00";
+                        $query->whereDate('report_date', '<=', $request->toDate);
+                }
+            }
+            if($request->filled('playerName'))
+            {
+               $query->where('playerName', 'like', '%' .$request->playerName. '%');
+            }
+
+
+            $generatedSql = $query->toSql();
+            $bindings = $query->getBindings();
+            // return $generatedSql;
+            $fullSql = vsprintf(str_replace('?', "'%s'", $generatedSql), $bindings);
+
+            $data = $query->paginate(30);
+
+            return response()->json([
+                        "success" => 1,
+                        "message" => "data fetched successfully ",
+                        "data" => $data,
+                        "log" => $request->all(),
+                        "query" => $fullSql,
+                        "test" =>  $request->filled('toDate')
+                    ]);   
+
+
+
+        }
+        catch (\Throwable $th) {
+            return response()->json([
+                        "success" => 0,
+                        "message" => "Server : Something went wrong while getting data for filter",
                         "data" => json_encode($th),
                         "error" => [
                                         'message' => $th->getMessage()
